@@ -40,14 +40,16 @@ def pexp(p):
 
 def analyse(df):
     r = {"N": len(df), "cats": df.category.value_counts().to_dict()}
+    full = df.dropna(subset=OTHERS + ["x_height", "stem"])
     for v in ("x_height", "stem"):
-        y = df[v].to_numpy()
-        X = df[[c for c in OTHERS + ["x_height", "stem"] if c != v]].to_numpy()
+        y = full[v].to_numpy()
+        X = full[[c for c in OTHERS + ["x_height", "stem"] if c != v]].to_numpy()
         lin = stochastic.cv_r2_linear(X, y, k=5, seed=SEED)
         knn = stochastic.cv_r2_knn(X, y, k_neighbors=5, k=5, seed=SEED)
+        y = df[v].to_numpy()
         d = dsc.describe(y)
         fits = dist.fit_candidates(y)
-        r[v] = {"lin": lin, "knn": knn, "d": d, "fits": fits, "out": int(dsc.iqr_outliers(y).sum()),
+        r[v] = {"lin": lin, "knn": knn, "d": d, "sd_model": full[v].std(ddof=1), "n_model": len(full), "fits": fits, "out": int(dsc.iqr_outliers(y).sum()),
                 "within": df.groupby("category")[v].std().mean() / y.std(ddof=1),
                 "k2": hyp.normality_dagostino(y)}
     x, s = df.x_height, df.stem
@@ -81,7 +83,7 @@ def code(s):
 UP = "\n\n<sub>[↑ к содержанию](#toc)</sub>"
 
 
-def build(df, r, sample_font: str | None):
+def build(df, r, sample_font: str | None, excluded=(), n_raw=None):
     cells = []
     cats = ", ".join(f"{k or 'без категории'} {v}" for k, v in sorted(r["cats"].items(), key=lambda t: -t[1]))
     X, S = r["x_height"], r["stem"]
@@ -96,7 +98,7 @@ def build(df, r, sample_font: str | None):
 | Генеральная совокупность | собранная коллекция, $N = {r['N']}$ семейств; одно начертание на семейство, ближайшее к Regular |
 | Категории | {cats} |
 | Случайные величины | RV01 **x-height**, RV02 **толщина штриха «l»**; обе в долях кегля |
-| Автор | **TODO КТвД: ФИО, ИСУ** |
+| Автор | Быкова Кристина Денисовна (ИСУ 501322), трек КТвД |
 | Код | `labfont/` (измерения, схема), `labstat/` (статистика, общая с основной частью), тесты `tests/test_labfont.py` |
 
 <a id="toc"></a>
@@ -137,7 +139,11 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 pd.set_option("display.precision", 4)
 plots.style()
 SEED = {SEED}
-fonts = pd.read_csv("../data/fonts.csv", keep_default_na=False)
+raw = pd.read_csv("../data/fonts.csv")
+raw["category"] = raw["category"].fillna("")
+# Шрифты без настоящих строчных (капитель SC, униказ): их «x» — это капитель или прописная
+print("Исключены (нет строчных букв):", raw.family[raw.no_lowercase].tolist())
+fonts = raw[~raw.no_lowercase].reset_index(drop=True)
 OTHERS = {OTHERS!r}
 fonts.shape
 """))
@@ -159,6 +165,12 @@ x-height $= 0.5$ значит, что при кегле 16 px строчные �
 - **толщина штриха**: ширина вертикали «l» на линии $y = \\tfrac12\\,$x-height. Контур дробится в многоугольник,
   точки пересечения с горизонталью сортируются, между парами лежит «чернила» (правило чёт-нечет);
 - **контраст**: толщина боков «o» к толщине верха и низа; **ширина**: ширина «o» к x-height.
+
+**Очистка.** Измерено {n_raw} семейств. Исключены {len(excluded)} шрифта без настоящих строчных букв
+({", ".join(excluded)}): в капительных (SC) и униказовых шрифтах на месте «x» стоит капитель или прописная,
+и «x-height» у них — это не высота строчных. Spectral SC вдобавок повторяет Spectral. Начертания оптических размеров
+(Inter 18pt, Fraunces 72pt) и ширин (Roboto SemiCondensed) объединены с основным семейством по папке Google Fonts.
+Категории взяты из каталога fonts.google.com (`data/font_categories.csv`).
 
 Почему одно начертание на семейство: Bold, Italic и Regular одного семейства рисовал один дизайнер,
 это зависимые наблюдения. Наблюдение здесь — семейство.
@@ -210,12 +222,14 @@ $1/1000$ или $1/2048$ кегля), то есть $\\le 0.001$.
 вычислить по другим пропорциям или по категории? что из расчёта ниже говорит «за» и «против»?_
 """ + UP))
         cells.append(code(f"""
-y = fonts["{key}"].to_numpy()
-Xo = fonts[[c for c in OTHERS + ["x_height", "stem"] if c != "{key}"]].to_numpy()
+full = fonts.dropna(subset=OTHERS + ["x_height", "stem"])   # без шрифтов с неизмеренным контрастом
+y = full["{key}"].to_numpy()
+Xo = full[[c for c in OTHERS + ["x_height", "stem"] if c != "{key}"]].to_numpy()
 lin = stochastic.cv_r2_linear(Xo, y, k=5, seed=SEED)
 knn = stochastic.cv_r2_knn(Xo, y, k_neighbors=5, k=5, seed=SEED)
 print(f"Линейная модель: R² = {{lin['r2_cv']:.3f}}, СКО остатка {{lin['resid_std']:.4f}} кегля")
 print(f"5 ближайших соседей: R² = {{knn['r2_cv']:.3f}}, СКО остатка {{knn['resid_std']:.4f}} кегля")
+print(f"Наблюдений в модели: {{len(full)}} (без шрифтов с неизмеренным контрастом)")
 print(f"СКО самой величины {{y.std(ddof=1):.4f}}; точность измерения ≤ 0.001")
 fp.box_by_category(fonts, "{key}", "{name}", "доли кегля", "fonts_{key}_by_cat.png");
 """))
@@ -223,9 +237,9 @@ fp.box_by_category(fonts, "{key}", "{name}", "доли кегля", "fonts_{key}
         cells.append(md(f"""
 **Результаты:**
 
-- Линейная модель по остальным измерениям: $R^2 = {f(R['lin']['r2_cv'])}$, СКО остатка {f(R['lin']['resid_std'], 4)} кегля.
+- Линейная модель по остальным измерениям: $R^2 = {f(R['lin']['r2_cv'])}$, СКО остатка {f(R['lin']['resid_std'], 4)} кегля{f" (отрицательный $R^2$ на кросс-валидации: прогноз на новых шрифтах хуже, чем просто среднее; 6 признаков при {R['n_model']} наблюдениях, модель переобучается)" if R['lin']['r2_cv'] < 0 else ""}.
 - 5 ближайших соседей: $R^2 = {f(R['knn']['r2_cv'])}$, СКО остатка {f(R['knn']['resid_std'], 4)} кегля.
-- СКО самой величины {f(R['d']['std'], 4)}, точность измерения $\\le 0.001$: остаток больше точности в {R['lin']['resid_std'] / 0.001:.0f} раз.
+- СКО самой величины {f(R['sd_model'], 4)} (шрифтов в модели: {R['n_model']}), точность измерения $\\le 0.001$: даже лучший остаток ({f(min(R['lin']['resid_std'], R['knn']['resid_std']), 4)}) больше точности, отношение $\\approx {min(R['lin']['resid_std'], R['knn']['resid_std']) / 0.001:.0f}$.
 - Средний по категориям разброс внутри категории составляет {R['within'] * 100:.0f} % общего СКО.
 """))
         cells.append(md(f'<a id="{aid}-eda"></a>\n### {num}.2 EDA & Distribution' + UP))
@@ -318,7 +332,7 @@ for col, nm in [("x_height", "x-height"), ("stem", "толщина штриха"
     v = fonts[col]
     rows.append({"величина": nm, "N": len(v), "среднее": v.mean(), "СКО": v.std(), "медиана": v.median(),
                  "асимметрия": stats.skew(v), "эксцесс": stats.kurtosis(v),
-                 "R² по остальным": stochastic.cv_r2_linear(fonts[[c for c in OTHERS + ["x_height", "stem"] if c != col]].to_numpy(), v.to_numpy(), k=5, seed=SEED)["r2_cv"],
+                 "R² по остальным": stochastic.cv_r2_linear(full[[c for c in OTHERS + ["x_height", "stem"] if c != col]].to_numpy(), full[col].to_numpy(), k=5, seed=SEED)["r2_cv"],
                  "лучшая по AIC": dist.fit_candidates(v.to_numpy()).index[0]})
 pd.DataFrame(rows).set_index("величина").round(4)
 """))
@@ -358,13 +372,20 @@ _Вопросы: почему x-height и толщина штриха — слу
                                          "language_info": {"name": "python"}}, "nbformat": 4, "nbformat_minor": 5}
 
 
+def load(data=DATA):
+    raw = pd.read_csv(data)
+    raw["category"] = raw["category"].fillna("")
+    return raw, raw[~raw.no_lowercase].reset_index(drop=True)
+
+
 def main(data=DATA, out=ROOT / "ktvd" / "fonts.ipynb"):
-    df = pd.read_csv(data, keep_default_na=False)
+    raw, df = load(data)
+    excluded = raw.family[raw.no_lowercase].tolist()
     r = analyse(df)
     sample_dir = ROOT / "data" / "fonts_sample"
     sample = next((p.name for p in sorted(sample_dir.glob("*")) if p.suffix.lower() in (".ttf", ".otf")), None) \
         if sample_dir.exists() else None
-    nb = build(df, r, sample)
+    nb = build(df, r, sample, excluded, len(raw))
     out.write_text(json.dumps(nb, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     print(f"{out}: {len(nb['cells'])} ячеек, N = {r['N']}")
 

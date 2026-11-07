@@ -69,6 +69,13 @@ def test_ink_runs_square_ring():
     assert ink_runs([outer, inner], 5, "v") == [(0, 2), (8, 10)]
 
 
+def test_ink_runs_overlapping_contours_merge():
+    """Два перекрывающихся контура одного направления — одна сплошная полоса (как в вариативных шрифтах)."""
+    a = [(0, 0), (0, 10), (6, 10), (6, 0)]
+    b = [(4, 0), (4, 10), (10, 10), (10, 0)]
+    assert ink_runs([a, b], 5, "h") == [(0, 10)]
+
+
 def test_measure_known_geometry():
     m = measure_font(TTFont(io.BytesIO(make_font())))
     assert m.x_height == pytest.approx(0.5)

@@ -15,7 +15,7 @@
 
 Толщина считается «сканирующей линией»: контур превращается в многоугольник,
 ищутся точки пересечения с горизонталью y = const, между парами пересечений
-лежат участки «чернил» (правило чёт-нечет).
+лежат участки «чернил» (правило ненулевой обмотки, как у растеризатора).
 """
 from __future__ import annotations
 
@@ -84,19 +84,31 @@ class PolygonPen(BasePen):
 def ink_runs(polys, y: float, axis: str = "h") -> list[tuple[float, float]]:
     """Участки «чернил» на линии y = const (axis='h') или x = const (axis='v').
 
-    Возвращает список отрезков (начало, конец) по другой координате, по возрастанию.
+    Правило ненулевой обмотки (как растеризатор шрифтов): у каждого пересечения есть
+    направление ребра (+1 вверх, −1 вниз); точка закрашена, если сумма направлений слева
+    от неё не равна нулю. Так перекрывающиеся контуры (обычны в вариативных шрифтах)
+    сливаются, а не «выедают» друг друга, как было бы по правилу чёт-нечет.
+    Возвращает отрезки (начало, конец) по другой координате, по возрастанию.
     """
     a, b = (0, 1) if axis == "h" else (1, 0)   # a: координата вдоль линии, b: фиксированная
-    xs = []
+    hits = []
     for poly in polys:
         n = len(poly)
         for i in range(n):
             p, q = poly[i], poly[(i + 1) % n]
             if (p[b] <= y < q[b]) or (q[b] <= y < p[b]):
                 t = (y - p[b]) / (q[b] - p[b])
-                xs.append(p[a] + t * (q[a] - p[a]))
-    xs.sort()
-    return [(xs[i], xs[i + 1]) for i in range(0, len(xs) - 1, 2)]
+                hits.append((p[a] + t * (q[a] - p[a]), 1 if q[b] > p[b] else -1))
+    hits.sort()
+    runs, wind, start = [], 0, None
+    for x, d in hits:
+        before = wind
+        wind += d
+        if before == 0 and wind != 0:
+            start = x
+        elif before != 0 and wind == 0:
+            runs.append((start, x))
+    return runs
 
 
 # ---------------------------------------------------------------- работа с файлом шрифта
@@ -152,6 +164,7 @@ class FontMeasure:
     adv_mean: float
     x_to_cap: float
     os2_x_height: float
+    no_lowercase: bool   # строчные заменены капителью/прописными: x-height не настоящий
 
 
 def _glyph(font: TTFont, ch: str):
@@ -202,7 +215,7 @@ def measure_font(font: TTFont, *, file: str = "", category: str = "") -> FontMea
     if len(side) >= 2 and len(topb) >= 2:
         thick = (side[0][1] - side[0][0] + side[-1][1] - side[-1][0]) / 2
         thin = (topb[0][1] - topb[0][0] + topb[-1][1] - topb[-1][0]) / 2
-        contrast = thick / thin if thin > 0 else math.nan
+        contrast = thick / thin if thin > 0 and thick > 0 else math.nan
     else:
         contrast = math.nan
 
@@ -213,7 +226,7 @@ def measure_font(font: TTFont, *, file: str = "", category: str = "") -> FontMea
 
     return FontMeasure(
         family=_name(font, 16, 1),
-        style=_name(font, 17, 2),
+        style="wght 400 (вариативный)" if variable else _name(font, 17, 2),
         file=file,
         category=category,
         upm=upm,
@@ -231,12 +244,13 @@ def measure_font(font: TTFont, *, file: str = "", category: str = "") -> FontMea
         adv_mean=sum(advs) / len(advs) / upm,
         x_to_cap=xh / bh[3],
         os2_x_height=(os2_xh or 0) / upm,
+        no_lowercase=bool(xh / bh[3] > 0.9 or re.search(r"\bSC$|Small ?Caps|Unicase", _name(font, 16, 1) or _name(font, 1))),
     )
 
 
 # ---------------------------------------------------------------- обход папки / архивов
 def iter_font_files(root: Path):
-    """Все .ttf/.otf в папке и во вложенных zip. Отдаёт (имя, байты, категория).
+    """Все .ttf/.otf в папке и во вложенных zip. Отдаёт (имя, байты, категория, папка семейства).
 
     Категория = имя папки первого уровня внутри root (sans, serif, display, ...),
     если шрифты разложены по папкам; иначе пустая строка.
@@ -246,12 +260,16 @@ def iter_font_files(root: Path):
         rel = p.relative_to(root)
         cat = rel.parts[0].lower() if len(rel.parts) > 1 else ""
         if p.suffix.lower() in FONT_EXT:
-            yield str(rel), p.read_bytes(), cat
+            # category/Family_Folder/[static/]file.ttf -> папка семейства из Google Fonts
+            fam_dir = rel.parts[1] if len(rel.parts) > 2 else ""
+            yield str(rel), p.read_bytes(), cat, fam_dir
         elif p.suffix.lower() == ".zip":
             with zipfile.ZipFile(p) as z:
                 for info in z.infolist():
                     if info.filename.lower().endswith(FONT_EXT) and "__MACOSX" not in info.filename:
-                        yield f"{rel}/{info.filename}", z.read(info), cat
+                        parts = info.filename.split("/")
+                        fam_dir = parts[0] if len(parts) > 1 and parts[0] != "static" else p.stem
+                        yield f"{rel}/{info.filename}", z.read(info), cat, fam_dir
 
 
 def _rank(font: TTFont) -> tuple:
@@ -271,13 +289,15 @@ def measure_collection(root: Path, *, one_per_family: bool = True, verbose: bool
 
     best: dict[str, tuple] = {}
     skipped = []
-    for name, raw, cat in iter_font_files(root):
+    for name, raw, cat, fam_dir in iter_font_files(root):
         try:
             font = TTFont(io.BytesIO(raw), lazy=False)
         except (TTLibError, Exception) as e:   # noqa: BLE001  повреждённый файл
             skipped.append((name, f"не читается: {e}"))
             continue
-        fam = _name(font, 16, 1) or Path(name).stem
+        # Папка семейства надёжнее имени в файле: у статических файлов оптических размеров
+        # (Inter 18pt, Fraunces 72pt) и ширин (Roboto SemiCondensed) своё имя семейства
+        fam = fam_dir.replace("_", " ") if fam_dir else (_name(font, 16, 1) or Path(name).stem)
         key = fam if one_per_family else f"{fam}|{_name(font, 17, 2)}|{name}"
         r = _rank(font)
         if key not in best or r < best[key][0]:
@@ -287,6 +307,8 @@ def measure_collection(root: Path, *, one_per_family: bool = True, verbose: bool
     for key, (_, name, raw, cat) in sorted(best.items()):
         try:
             m = measure_font(TTFont(io.BytesIO(raw)), file=name, category=cat)
+            if one_per_family:
+                m.family = key
             rows.append(asdict(m))
         except Exception as e:   # noqa: BLE001
             skipped.append((name, str(e)))

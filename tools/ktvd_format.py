@@ -265,7 +265,7 @@ def main(path: Path):
                "*Код в ячейках скрыт, чтобы документ читался как отчёт: раскрыть — щелчок по полоске слева от ячейки "
                "(JupyterLab) или по «…». Все рисунки пронумерованы, подпись под каждым.*"]
     src = re.sub(r"\*\*Содержание\*\*.*", "\n".join(toc_md), src, flags=re.S)
-    src = src.replace("| Нейросети |", "| КТвД | **TODO КТвД: ФИО, ИСУ**: оформление, доп. задание, датчик на marimo, сайт |\n| Нейросети |")
+    src = src.replace("| Нейросети |", "| КТвД | Быкова Кристина Денисовна (ИСУ 501322): оформление, доп. задание, датчик на marimo, сайт |\n| Нейросети |")
     first["source"] = src.splitlines(keepends=True)
     path.write_text(json.dumps(nb, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     print(f"разделов в оглавлении: {len(toc)}, рисунков: {fig_no}")

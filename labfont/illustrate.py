@@ -33,7 +33,7 @@ def measurement_figure(font_bytes: bytes, title: str | None = None, ax=None):
     for ch in "Hxlno":
         polys, adv = _outline(f, ch)
         pos[ch] = (x0, polys)
-        # правило чёт-нечет: рисуем контуры как один путь
+        # контуры одним путём; заливка без обводки, чтобы не были видны перекрытия контуров
         from matplotlib.path import Path as MPath
         from matplotlib.patches import PathPatch
         verts, codes = [], []
@@ -41,7 +41,7 @@ def measurement_figure(font_bytes: bytes, title: str | None = None, ax=None):
             pts = [((x + x0) / upm, y / upm) for x, y in p]
             verts += pts + [pts[0]]
             codes += [MPath.MOVETO] + [MPath.LINETO] * (len(pts) - 1) + [MPath.CLOSEPOLY]
-        ax.add_patch(PathPatch(MPath(verts, codes), facecolor="#d6e6f8", edgecolor=C1, linewidth=1))
+        ax.add_patch(PathPatch(MPath(verts, codes), facecolor="#bcd6f3", edgecolor="none"))
         x0 += adv
     right = x0 / upm
     for y, lab, col in ((0, "базовая линия", INK2), (m.x_height, f"x-height = {m.x_height:.3f}", C2),
