@@ -84,3 +84,11 @@ def test_compare_same_data(ph):
     r = G.compare(ph, ph)
     assert r["ks_D"] == 0 and r["chi2_p"] > 0.99
     assert r["real"]["среднее"] == r["gen"]["среднее"]
+
+
+def test_rounding_matches_data_grid():
+    """Округлённые значения должны совпадать с записью в данных (регрессия: 6.800000000000001 != 6.8)."""
+    data = np.round(stats.norm.rvs(6.85, 0.84, size=4898, random_state=2) * 10) / 10
+    x, _ = G.generate(data, 3000, method="quantile", step=0.1)
+    assert set(np.unique(x)) <= set(np.unique(data)) | set(np.round(np.arange(0, 20, 0.1), 10))
+    assert stats.ks_2samp(x, data).pvalue > 1e-3

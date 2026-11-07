@@ -214,7 +214,9 @@ def generate(data, n: int, *, method: str = "quantile", family: str = "skewnorm"
             z1 = std_normal(U, n, method)[0] if family == "skewnorm" else None
             x, info["accept"] = from_normal(family, params, z0, z1), acc
     if step:
-        x = np.round(x / step) * step
+        # второе округление убирает хвосты вида 6.800000000000001: иначе значения
+        # не совпадают с записанными в данных 6.8, и КС видит ложные ступеньки ФР
+        x = np.round(np.round(x / step) * step, 10)
     return x, info
 
 
