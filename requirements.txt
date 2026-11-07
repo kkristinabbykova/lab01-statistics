@@ -4,5 +4,3 @@ pandas>=2.2
 matplotlib>=3.8
 pytest>=8.0
 jupyter
-fonttools>=4.50
-marimo>=0.9
