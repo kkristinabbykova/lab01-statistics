@@ -12,6 +12,15 @@ FIG_DIR = Path(__file__).resolve().parent.parent / "figures"
 C1, C2, C3 = "#2a78d6", "#eb6834", "#1baf7a"   # синий, оранжевый, бирюзовый
 INK, INK2, GRID = "#0b0b0b", "#52514e", "#e6e5e0"
 
+# Подписи на графиках только по-русски: имена распределений scipy и оценок -> русские
+DIST_RU = {"norm": "нормальное", "lognorm": "логнормальное", "skewnorm": "скошенное нормальное",
+           "gamma": "гамма", "weibull_min": "Вейбулла"}
+EST_RU = {"mean": "среднее", "var": "дисперсия", "median": "медиана"}
+COL_RU = {"fixed_acidity": "фикс. кислотность", "volatile_acidity": "летуч. кислотность",
+          "citric_acid": "лимонная к-та", "residual_sugar": "остат. сахар", "chlorides": "хлориды",
+          "free_so2": "своб. SO₂", "total_so2": "общий SO₂", "density": "плотность", "ph": "pH",
+          "sulphates": "сульфаты", "alcohol": "спирт", "quality": "качество"}
+
 
 def style():
     plt.rcParams.update({
@@ -20,6 +29,7 @@ def style():
         "axes.spines.top": False, "axes.spines.right": False,
         "axes.grid": True, "grid.color": GRID, "grid.linewidth": 0.8,
         "xtick.color": INK2, "ytick.color": INK2, "legend.frameon": False, "lines.linewidth": 2,
+        "legend.fontsize": 9, "axes.titleweight": "regular", "axes.formatter.use_locale": False,
     })
 
 
@@ -56,7 +66,7 @@ def eda_panel(x, label: str, unit: str, fits: dict, fname: str):
     ax[0].hist(x, bins=grid_bins(x), density=True, color=C1, alpha=0.35, edgecolor="white", linewidth=0.5, label="данные")
     grid = np.linspace(x.min(), x.max(), 400)
     for (name, params), col in zip(fits.items(), [C1, C2, C3]):
-        ax[0].plot(grid, getattr(stats, name).pdf(grid, *params), color=col, label=name)
+        ax[0].plot(grid, getattr(stats, name).pdf(grid, *params), color=col, label=DIST_RU.get(name, name))
     ax[0].set(xlabel=f"{label}, {unit}", ylabel="плотность", title=f"{label}: гистограмма и модели")
     ax[0].legend()
     ax[1].boxplot(x, vert=True, widths=0.5, patch_artist=True,
@@ -76,17 +86,18 @@ def consistency_panel(curves: dict, running: dict, label: str, fname: str):
     style()
     fig, ax = plt.subplots(1, 2, figsize=(12, 3.6))
     for (est, (ns, vals, theta)), col in zip(running.items(), [C1, C2, C3]):
-        ax[0].plot(ns, vals / theta, color=col, label=est, linewidth=1.5)
+        ax[0].plot(ns, vals / theta, color=col, label=EST_RU.get(est, est), linewidth=1.5)
     ax[0].axhline(1, color=INK2, linewidth=1, linestyle="--")
     ax[0].set(xscale="log", xlabel="объём выборки n", ylabel="оценка / значение в совокупности",
               title=f"{label}: оценка при росте n (одна траектория)")
-    ax[0].set_ylim(0.5, 1.5)
-    ax[0].legend()
+    ax[0].set_ylim(0.5, 1.5)   # при n < 30 дисперсия выходит за рамку: шкала выбрана для больших n
+    ax[0].legend(loc="upper right")
     for (est, df), col in zip(curves.items(), [C1, C2, C3]):
-        ax[1].plot(df["n"], df["p_far"], "o-", color=col, ms=5, label=f"{est}, ε={df['eps'].iloc[0]:.3g}")
+        ax[1].plot(df["n"], df["p_far"], "o-", color=col, ms=5, label=f"{EST_RU.get(est, est)}, ε = {df['eps'].iloc[0]:.3g}")
     ax[1].set(xscale="log", xlabel="объём выборки n", ylabel="P(|оценка − θ| > ε)",
               title="доля «далёких» оценок, 1000 повторов", ylim=(-0.02, 1.02))
-    ax[1].legend()
+    ax[1].legend(loc="upper left", fontsize=8)
+    ax[1].set_ylim(top=ax[1].get_ylim()[1] * 1.18)   # место под легенду, чтобы не наезжала на столбцы
     fig.tight_layout()
     return save(fig, fname)
 
@@ -117,9 +128,9 @@ def se_panel(tables: dict, fname: str):
         ax.plot(df["n/N"], df["se_without_emp"] / base, "s", color=C2, ms=6, label="без возвр., опыт")
         grid = np.linspace(0, df["n/N"].max(), 100)
         N = df["n"].iloc[0] / df["n/N"].iloc[0]
-        ax.plot(grid, np.sqrt((N - grid * N) / (N - 1)), color=C2, linewidth=1.2, label="√((N−n)/(N−1))")
-        ax.axhline(1, color=C1, linewidth=1.2)
-        ax.set(xlabel="доля отбора n/N", title=label)
+        ax.plot(grid, np.sqrt((N - grid * N) / (N - 1)), color=C2, linewidth=1.2, label="теория без возвр.: √((N−n)/(N−1))")
+        ax.axhline(1, color=C1, linewidth=1.2, label="теория с возвр.: 1")
+        ax.set(xlabel="доля отбора n/N", title=f"{label}: СКО выборочного среднего")
     np.atleast_1d(axes)[0].set_ylabel("SE / (σ/√n)")
     np.atleast_1d(axes)[0].legend(loc="lower left")
     fig.tight_layout()
@@ -163,8 +174,8 @@ def corr_heatmap(corr, fname: str):
     style()
     fig, ax = plt.subplots(figsize=(7.5, 6.2))
     im = ax.imshow(corr.values, cmap="RdBu_r", vmin=-1, vmax=1)
-    ax.set_xticks(range(len(corr)), corr.columns, rotation=60, ha="right", fontsize=8)
-    ax.set_yticks(range(len(corr)), corr.index, fontsize=8)
+    ax.set_xticks(range(len(corr)), [COL_RU.get(c, c) for c in corr.columns], rotation=60, ha="right", fontsize=8)
+    ax.set_yticks(range(len(corr)), [COL_RU.get(c, c) for c in corr.index], fontsize=8)
     ax.grid(False)
     for i in range(len(corr)):
         for j in range(len(corr)):
@@ -182,8 +193,8 @@ def two_groups(a, b, la: str, lb: str, xlabel: str, title: str, fname: str):
     bins = np.histogram_bin_edges(np.concatenate([a, b]), bins=45)
     ax.hist(a, bins=bins, density=True, color=C1, alpha=0.45, label=la, edgecolor="white", linewidth=0.4)
     ax.hist(b, bins=bins, density=True, color=C2, alpha=0.45, label=lb, edgecolor="white", linewidth=0.4)
-    ax.axvline(np.mean(a), color=C1, linestyle="--", linewidth=1.5)
-    ax.axvline(np.mean(b), color=C2, linestyle="--", linewidth=1.5)
+    ax.axvline(np.mean(a), color=C1, linestyle="--", linewidth=1.5, label=f"среднее: {np.mean(a):.2f}")
+    ax.axvline(np.mean(b), color=C2, linestyle="--", linewidth=1.5, label=f"среднее: {np.mean(b):.2f}")
     ax.set(xlabel=xlabel, ylabel="плотность", title=title)
     ax.legend()
     fig.tight_layout()
@@ -201,11 +212,12 @@ def stochastic_panel(y, resid, label: str, unit: str, step: float, fname: str):
     ax[0].plot([lo, hi], [lo, hi], color=C2, linewidth=1.2, label="y = прогноз")
     ax[0].set(xlim=(lo, hi), ylim=(lo, hi), xlabel=f"прогноз по 10 другим измерениям, {unit}",
               ylabel=f"измерено, {unit}", title=f"{label}: прогноз против факта")
-    ax[0].legend()
+    ax[0].legend(loc="upper left")
     r_lo, r_hi = np.quantile(resid, [0.001, 0.999])
     ax[1].hist(resid[(resid >= r_lo) & (resid <= r_hi)], bins=60, color=C1, alpha=0.5, edgecolor="white", linewidth=0.4)
     ax[1].axvspan(-step / 2, step / 2, color=C2, alpha=0.6, label=f"± половина шага прибора ({step:g})")
     ax[1].set(xlabel=f"остаток, {unit}", ylabel="число вин", title="остатки модели (без 0.2 % крайних)")
-    ax[1].legend()
+    ax[1].legend(loc="upper left", fontsize=8)
+    ax[1].set_ylim(top=ax[1].get_ylim()[1] * 1.18)   # место под легенду, чтобы не наезжала на столбцы
     fig.tight_layout()
     return save(fig, fname)
