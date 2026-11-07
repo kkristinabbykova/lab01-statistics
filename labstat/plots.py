@@ -58,12 +58,17 @@ def save(fig, name: str):
     return fig
 
 
-def eda_panel(x, label: str, unit: str, fits: dict, fname: str):
-    """Гистограмма плотности + подобранные плотности, ящик с усами, Q-Q к нормальному."""
+def eda_panel(x, label: str, unit: str, fits: dict, fname: str, bins=None):
+    """Гистограмма плотности + подобранные плотности, ящик с усами, Q-Q к нормальному.
+
+    bins=None: интервалы по шагу записи прибора (grid_bins). Для непрерывных измерений
+    без шага (пропорции шрифтов) передать, например, bins="fd" (правило Фридмана–Диакониса).
+    """
     style()
     x = np.asarray(x, dtype=float)
+    bins = grid_bins(x) if bins is None else bins
     fig, ax = plt.subplots(1, 3, figsize=(13, 3.6), gridspec_kw={"width_ratios": [2.2, 1, 1.4]})
-    ax[0].hist(x, bins=grid_bins(x), density=True, color=C1, alpha=0.35, edgecolor="white", linewidth=0.5, label="данные")
+    ax[0].hist(x, bins=bins, density=True, color=C1, alpha=0.35, edgecolor="white", linewidth=0.5, label="данные")
     grid = np.linspace(x.min(), x.max(), 400)
     for (name, params), col in zip(fits.items(), [C1, C2, C3]):
         ax[0].plot(grid, getattr(stats, name).pdf(grid, *params), color=col, label=DIST_RU.get(name, name))
