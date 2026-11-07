@@ -4,8 +4,10 @@
 pH ~ логнормальное со сдвигом: ln(X - theta) ~ N(mu, sigma^2).
 Параметры подобраны в спринте 1 (scipy lognorm: s, loc, scale = 0.1363, 2.0877, 1.0904).
 Основной метод: полярный метод Марсальи (N(0,1)) -> X = theta + exp(mu + sigma*Z).
+Для сравнения: метод обратных функций X = theta + exp(mu + sigma * Phi^{-1}(U)).
 """
 import numpy as np
+from scipy import stats
 
 sigma = 0.1363
 theta = 2.0877
@@ -35,3 +37,10 @@ def ph_polar(n, rng):
     x = theta + np.exp(mu + sigma * z)
     return x, acc
 
+
+def ph_inverse(n, rng):
+    """pH через метод обратных функций (для сравнения)."""
+    u = rng.random(n)
+    z = stats.norm.ppf(u)
+    x = theta + np.exp(mu + sigma * z)
+    return x
