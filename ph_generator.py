@@ -3,7 +3,7 @@
 Автор: Быкова К. Д. (ИСУ 501322).
 pH ~ логнормальное со сдвигом: ln(X - theta) ~ N(mu, sigma^2).
 Параметры подобраны в спринте 1 (scipy lognorm: s, loc, scale = 0.1363, 2.0877, 1.0904).
-Шаг 1: полярный метод Марсальи для N(0, 1).
+Основной метод: полярный метод Марсальи (N(0,1)) -> X = theta + exp(mu + sigma*Z).
 """
 import numpy as np
 
@@ -27,4 +27,11 @@ def polar_normal(n, rng):
             result.append(v1 * factor)
             result.append(v2 * factor)
     return np.array(result[:n]), accepted / tried
+
+
+def ph_polar(n, rng):
+    """pH через полярный метод."""
+    z, acc = polar_normal(n, rng)
+    x = theta + np.exp(mu + sigma * z)
+    return x, acc
 
